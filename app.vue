@@ -79,6 +79,8 @@ onUnmounted(() => {
       {{ isLoading ? 'Chargement...' : 'Juron Aléatoire !' }}
     </UButton>
 
+    <p class="text-gray-500 dark:text-gray-400 mb-8 sm:mb-10 text-center">Appuyez sur la touche "J" pour générer un juron aléatoire</p>
+
     <!-- Animation d'apparition pour l'image et le texte -->
     <Transition name="appear" appear>
       <div v-if="randomCurse" class="relative w-full max-w-lg">
