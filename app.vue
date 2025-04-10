@@ -93,7 +93,7 @@ onUnmounted(() => {
         <Transition name="fade" mode="out-in">
           <p
             :key="randomCurse"
-            class="absolute top-[40px] left-1/2 -translate-x-1/2 
+            class="absolute top-[10%] left-1/2 -translate-x-1/2 
                      text-black text-xl sm:text-2xl font-bold text-center 
                      rounded drop-shadow-lg"
           >
