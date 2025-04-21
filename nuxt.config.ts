@@ -4,4 +4,14 @@ export default defineNuxtConfig({
   modules: ['@nuxt/ui'],
   compatibilityDate: '2025-04-09',
   css: ['~/assets/css/main.css'],
+  app: {
+    head: {
+      script: [
+        {
+          'data-domain': 'haddock-fury.cocommit.fr',
+          'src': 'https://plausible.cocommit.fr/js/script.js',
+        }
+      ]
+    }
+  }
 })
