@@ -29,11 +29,31 @@ function copyTextFallback(text: string) {
   ta.value = text
   ta.setAttribute('readonly', '')
   ta.style.position = 'fixed'
-  ta.style.left = '-9999px'
+  ta.style.left = '0'
+  ta.style.top = '0'
+  ta.style.opacity = '0'
+  ta.style.fontSize = '16px'
   document.body.appendChild(ta)
-  ta.select()
+  ta.focus()
+  ta.setSelectionRange(0, text.length)
   document.execCommand('copy')
   document.body.removeChild(ta)
+}
+
+function scheduleCopyFeedback() {
+  copied.value = true
+  if (copyFeedbackTimer) clearTimeout(copyFeedbackTimer)
+  copyFeedbackTimer = setTimeout(() => {
+    copied.value = false
+  }, 2000)
+}
+
+function isMobileDevice(): boolean {
+  if (typeof navigator === 'undefined') return false
+  return (
+    /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+  )
 }
 
 async function renderCurseCompositePng(): Promise<Blob | null> {
@@ -81,55 +101,143 @@ async function renderCurseCompositePng(): Promise<Blob | null> {
   return new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
 }
 
-const copyCurseToClipboard = async () => {
+/**
+ * Bureau : clipboard.write() avec ClipboardItem (texte + image en Promise) dans le même tick que le tap.
+ * Mobile : WebKit refuse souvent le multi-types ; on génère le PNG puis Web Share (fichier + texte), sinon clipboard avec blob.
+ */
+const copyCurseToClipboard = () => {
   const text = curseDisplayText.value
   if (!text || isCopying.value) return
   isCopying.value = true
-  try {
-    const pngBlob = await renderCurseCompositePng()
-    if (!pngBlob) throw new Error('Image vide')
 
-    const canWriteRich =
-      typeof ClipboardItem !== 'undefined' &&
-      typeof navigator.clipboard?.write === 'function'
+  const canUseClipboardWrite =
+    typeof ClipboardItem !== 'undefined' &&
+    typeof navigator.clipboard?.write === 'function'
 
-    if (canWriteRich) {
-      await navigator.clipboard.write([
-        new ClipboardItem({
-          'text/plain': Promise.resolve(
-            new Blob([text], { type: 'text/plain' })
-          ),
-          'image/png': Promise.resolve(pngBlob),
-        }),
-      ])
+  if (!canUseClipboardWrite) {
+    if (navigator.clipboard?.writeText) {
+      void navigator.clipboard
+        .writeText(text)
+        .then(scheduleCopyFeedback)
+        .catch(() => {
+          copyTextFallback(text)
+          scheduleCopyFeedback()
+        })
+        .finally(() => {
+          isCopying.value = false
+        })
     } else {
-      await navigator.clipboard.writeText(text)
-    }
-    copied.value = true
-    if (copyFeedbackTimer) clearTimeout(copyFeedbackTimer)
-    copyFeedbackTimer = setTimeout(() => {
-      copied.value = false
-    }, 2000)
-  } catch (e) {
-    console.error('Copie riche impossible, repli texte :', e)
-    try {
-      await navigator.clipboard.writeText(text)
-      copied.value = true
-      if (copyFeedbackTimer) clearTimeout(copyFeedbackTimer)
-      copyFeedbackTimer = setTimeout(() => {
-        copied.value = false
-      }, 2000)
-    } catch {
       copyTextFallback(text)
-      copied.value = true
-      if (copyFeedbackTimer) clearTimeout(copyFeedbackTimer)
-      copyFeedbackTimer = setTimeout(() => {
-        copied.value = false
-      }, 2000)
+      scheduleCopyFeedback()
+      isCopying.value = false
     }
-  } finally {
-    isCopying.value = false
+    return
   }
+
+  if (isMobileDevice()) {
+    void (async () => {
+      try {
+        const pngBlob = await renderCurseCompositePng()
+        if (!pngBlob) throw new Error('Image vide')
+
+        const file = new File([pngBlob], 'haddock-juron.png', {
+          type: 'image/png',
+        })
+        const shareData: ShareData = {
+          files: [file],
+          text,
+          title: 'Juron Haddock',
+        }
+
+        if (typeof navigator.share === 'function') {
+          const canTry =
+            typeof navigator.canShare !== 'function' ||
+            navigator.canShare(shareData)
+          if (canTry) {
+            try {
+              await navigator.share(shareData)
+              scheduleCopyFeedback()
+              return
+            } catch (err) {
+              const e = err as DOMException
+              if (e?.name === 'AbortError') {
+                return
+              }
+            }
+          }
+        }
+
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            'text/plain': new Blob([text], { type: 'text/plain' }),
+            'image/png': pngBlob,
+          }),
+        ])
+        scheduleCopyFeedback()
+      } catch (e) {
+        console.error('Copie mobile impossible, repli :', e)
+        try {
+          await navigator.clipboard.writeText(text)
+          scheduleCopyFeedback()
+        } catch {
+          copyTextFallback(text)
+          scheduleCopyFeedback()
+        }
+      } finally {
+        isCopying.value = false
+      }
+    })()
+    return
+  }
+
+  const pngPromise = renderCurseCompositePng().then((blob) => {
+    if (!blob) throw new Error('Image vide')
+    return blob
+  })
+
+  void navigator.clipboard
+    .write([
+      new ClipboardItem({
+        'text/plain': Promise.resolve(
+          new Blob([text], { type: 'text/plain' })
+        ),
+        'image/png': pngPromise,
+      }),
+    ])
+    .then(() => {
+      scheduleCopyFeedback()
+    })
+    .catch((e) => {
+      console.error('Copie image+texte impossible, repli :', e)
+      void pngPromise
+        .then(async (blob) => {
+          if (!blob || typeof navigator.share !== 'function') {
+            throw new Error('Pas de blob ou share')
+          }
+          const file = new File([blob], 'haddock-juron.png', {
+            type: 'image/png',
+          })
+          const shareData: ShareData = { files: [file], text, title: 'Juron Haddock' }
+          if (navigator.canShare?.(shareData)) {
+            await navigator.share(shareData)
+            scheduleCopyFeedback()
+            return
+          }
+          throw new Error('canShare false')
+        })
+        .catch(() => {
+          void navigator.clipboard
+            .writeText(text)
+            .then(scheduleCopyFeedback)
+            .catch(() => {
+              copyTextFallback(text)
+              scheduleCopyFeedback()
+            })
+        })
+    })
+    .finally(() => {
+      isCopying.value = false
+    })
 }
 
 watch(curseText, () => {
