@@ -428,6 +428,7 @@ onUnmounted(() => {
                   size="lg"
                   :loading="isCopying"
                   @click="copyCurseToClipboard"
+                  class="hidden lg:block"
                 >
                   {{ copied ? 'Copié !' : 'Copier le juron et l’image' }}
                 </UButton>
